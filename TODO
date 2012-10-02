@@ -1,8 +1,4 @@
-GET
 COUNT
 UPDATE
 DELETE
 BATCH
-
-处理返回结果
-优化代码，减少buf之间的复制

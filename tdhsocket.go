@@ -28,12 +28,10 @@ func New(hostPort string, readCode string, writeCode string) (*Tdh, error) {
   return self, nil
 }
 
-func packStr(str string) []byte {
-  ret := new(bytes.Buffer)
-  write(ret, uint32(len(str) + 1))
-  ret.Write([]byte(str))
-  ret.Write([]byte("\x00"))
-  return ret.Bytes()
+func writeStr(buf io.Writer, str string) {
+  write(buf, uint32(len(str) + 1))
+  buf.Write([]byte(str))
+  buf.Write([]byte("\x00"))
 }
 
 func write(buf io.Writer, data interface{}) error {
@@ -50,56 +48,149 @@ func (self *Tdh) handShake(readCode string, writeCode string) {
   data.Write([]byte("TDHS"))
   write(data, uint32(1))
   write(data, uint32(Timeout))
-  data.Write(packStr(readCode))
-  data.Write(packStr(writeCode))
+  writeStr(data, readCode)
+  writeStr(data, writeCode)
 
-  header := new(bytes.Buffer)
-  self.writeHeader(header, REQUEST_TYPE_SHAKE_HANDS, uint32(0), uint32(len(data.Bytes())))
-
-  self.conn.Write(header.Bytes())
+  self.writeHeader(self.conn, REQUEST_TYPE_SHAKE_HANDS, uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 }
 
-func (self *Tdh) Insert(dbname string, table string, index string, fields []string, values []string) (ret error) {
+func (self *Tdh) Insert(dbname string, table string, index string, fields []string, values []string) (err error) {
   data := new(bytes.Buffer)
 
-  data.Write(packStr(dbname))
-  data.Write(packStr(table))
-  data.Write(packStr(index))
+  writeStr(data, dbname)
+  writeStr(data, table)
+  writeStr(data, index)
   write(data, uint32(len(fields)))
   for _, field := range fields {
-    data.Write(packStr(field))
+    writeStr(data, field)
   }
   write(data, uint32(len(values)))
   for _, value := range values {
     data.Write([]byte("\x00"))
-    data.Write(packStr(value))
+    writeStr(data, value)
   }
 
-  header := new(bytes.Buffer)
-  self.writeHeader(header, REQUEST_TYPE_INSERT, uint32(0), uint32(len(data.Bytes())))
-
-  self.conn.Write(header.Bytes())
+  self.writeHeader(self.conn, REQUEST_TYPE_INSERT, uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 
   code, length := self.readHeader()
-  body := make([]byte, length)
-  io.ReadFull(self.conn, body)
   if code == CLIENT_STATUS_OK {
-    ret = nil
-  } else if code == CLIENT_STATUS_ACCEPT {
-    panic("TODO")
-  } else if code == CLIENT_STATUS_MULTI_STATUS {
-    panic("TODO")
+    read(self.conn, make([]byte, length))
+    err = nil
   } else {
     var errorCode uint32
-    read(bytes.NewBuffer(body), &errorCode)
-    ret = &Error{code, errorCode}
+    read(self.conn, &errorCode)
+    err = &Error{code, errorCode}
   }
   return
 }
 
-func (self *Tdh) writeHeader(buf *bytes.Buffer, command uint32, reserved uint32, length uint32) {
+type Filter struct {
+  field string
+  op uint8
+  value string
+}
+
+func (self *Tdh) Get(dbname string, table string, index string, fields []string, keys [][]string,
+                     op uint8, start uint32, limit uint32, filters []*Filter) (rows [][][]byte, 
+                     fieldTypes []uint8, err error) {
+  data := new(bytes.Buffer)
+
+  writeStr(data, dbname)
+  writeStr(data, table)
+  writeStr(data, index)
+  write(data, uint32(len(fields)))
+  for _, field := range fields {
+    writeStr(data, field)
+  }
+  write(data, uint32(len(keys)))
+  for _, key := range keys {
+    write(data, uint32(len(key)))
+    for _, column := range key {
+      writeStr(data, column)
+    }
+  }
+  write(data, op)
+  write(data, start)
+  write(data, limit)
+  write(data, uint32(len(filters)))
+  for _, filter := range filters {
+    writeStr(data, filter.field)
+    write(data, filter.op)
+    writeStr(data, filter.value)
+  }
+
+  self.writeHeader(self.conn, REQUEST_TYPE_GET, uint32(0), uint32(len(data.Bytes())))
+  self.conn.Write(data.Bytes())
+
+  return self.parseResult()
+}
+
+func (self *Tdh) parseResult() (rows [][][]byte, fieldTypes []uint8, err error) {
+  code, length := self.readHeader()
+  var numFields, remainLength uint32
+  switch code {
+  case CLIENT_STATUS_OK:
+    numFields, fieldTypes, remainLength = self.parseResultHead(length)
+    rows = self.parseResultBody(self.conn, numFields, remainLength)
+  case CLIENT_STATUS_ACCEPT:
+    numFields, fieldTypes, remainLength = self.parseResultHead(length)
+    totalLength := remainLength
+    bodies := make([][]byte, 0)
+    body := make([]byte, remainLength)
+    read(self.conn, body)
+    bodies = append(bodies, body)
+    for {
+      code, length := self.readHeader()
+      totalLength += length
+      body := make([]byte, length)
+      read(self.conn, body)
+      bodies = append(bodies, body)
+      if code == CLIENT_STATUS_OK {
+        break
+      }
+    }
+    rows = self.parseResultBody(ReaderOfBytesArray(bodies), numFields, totalLength)
+  default:
+    var errorCode uint32
+    read(self.conn, &errorCode)
+    err = &Error{code, errorCode}
+  }
+  return rows, fieldTypes, err
+}
+
+func (self *Tdh) parseResultHead(length uint32) (numFields uint32, fieldTypes []uint8, remainLength uint32) {
+  remainLength = length
+  read(self.conn, &numFields)
+  remainLength -= 4
+  fieldTypes = make([]uint8, numFields)
+  for i := uint32(0); i < numFields; i++ {
+    read(self.conn, &fieldTypes[i])
+    remainLength -= 1
+  }
+  return
+}
+
+func (self *Tdh) parseResultBody(buf io.Reader, numFields uint32, length uint32) [][][]byte {
+  var fieldLength uint32
+  rows := make([][][]byte, 0)
+  for length > 0 {
+    fieldValues := make([][]byte, numFields)
+    for i := uint32(0); i < numFields; i++ {
+      read(buf, &fieldLength)
+      length -= 4
+      fieldValue := make([]byte, fieldLength)
+      fieldValues[i] = fieldValue
+      read(buf, fieldValue)
+      length -= fieldLength
+    }
+    rows = append(rows, fieldValues)
+  }
+  return rows
+}
+
+func (self *Tdh) writeHeader(buf io.Writer, command uint32, reserved uint32, length uint32) {
   write(buf, uint32(0xffffffff))
   write(buf, command)
   self.sequenceId++
