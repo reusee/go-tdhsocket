@@ -5,6 +5,7 @@ import (
   "encoding/binary"
   "bytes"
   "io"
+  "strconv"
   "fmt"
 )
 
@@ -92,9 +93,8 @@ type Filter struct {
   value string
 }
 
-func (self *Tdh) Get(dbname string, table string, index string, fields []string, keys [][]string,
-                     op uint8, start uint32, limit uint32, filters []*Filter) (rows [][][]byte, 
-                     fieldTypes []uint8, err error) {
+func (self *Tdh) getOrCount(reqType uint32, dbname string, table string, index string, fields []string, keys [][]string,
+                     op uint8, start uint32, limit uint32, filters []*Filter) {
   data := new(bytes.Buffer)
 
   writeStr(data, dbname)
@@ -121,13 +121,29 @@ func (self *Tdh) Get(dbname string, table string, index string, fields []string,
     writeStr(data, filter.value)
   }
 
-  self.writeHeader(self.conn, REQUEST_TYPE_GET, uint32(0), uint32(len(data.Bytes())))
+  self.writeHeader(self.conn, reqType, uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
-
-  return self.parseResult()
 }
 
-func (self *Tdh) parseResult() (rows [][][]byte, fieldTypes []uint8, err error) {
+func (self *Tdh) Get(dbname string, table string, index string, fields []string, keys [][]string,
+                     op uint8, start uint32, limit uint32, filters []*Filter) (rows [][][]byte, 
+                     fieldTypes []uint8, err error) {
+  self.getOrCount(REQUEST_TYPE_GET, dbname, table, index, fields, keys, op, start, limit, filters)
+  return self.parseGetResult()
+}
+
+func (self *Tdh) Count(dbname string, table string, index string, fields []string, keys [][]string,
+                     op uint8, start uint32, limit uint32, filters []*Filter) (count int, err error) {
+  self.getOrCount(REQUEST_TYPE_COUNT, dbname, table, index, fields, keys, op, start, limit, filters)
+  rows, _, err := self.parseGetResult()
+  if err != nil {
+    return -1, err
+  }
+  count, _ = strconv.Atoi(string(rows[0][0]))
+  return count, nil
+}
+
+func (self *Tdh) parseGetResult() (rows [][][]byte, fieldTypes []uint8, err error) {
   code, length := self.readHeader()
   var numFields, remainLength uint32
   switch code {

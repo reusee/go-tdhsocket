@@ -2,8 +2,9 @@ package tdhsocket
 
 const (
   REQUEST_TYPE_SHAKE_HANDS uint32 = 0xffff
-  REQUEST_TYPE_INSERT uint32 = 12
   REQUEST_TYPE_GET uint32 = 0
+  REQUEST_TYPE_COUNT uint32 = 1
+  REQUEST_TYPE_INSERT uint32 = 12
 
   CLIENT_STATUS_OK = 200 //完成所有数据的返回
   CLIENT_STATUS_ACCEPT = 202 //对于流的处理,还有未返回的数据
