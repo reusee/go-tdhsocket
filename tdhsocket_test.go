@@ -6,7 +6,7 @@ import (
 )
 
 func getDb() (*Tdh, error) {
-  return New("localhost:45678")
+  return New("localhost:45678", "", "")
 }
 
 func TestNew(t *testing.T) {

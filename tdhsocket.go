@@ -17,14 +17,14 @@ type Tdh struct {
   sequenceId uint32
 }
 
-func New(hostPort string) (*Tdh, error) {
+func New(hostPort string, readCode string, writeCode string) (*Tdh, error) {
   self := &Tdh{}
   conn, err := net.Dial("tcp", hostPort)
   if err != nil {
     return nil, err
   }
   self.conn = conn
-  self.handShake()
+  self.handShake(readCode, writeCode)
   return self, nil
 }
 
@@ -44,14 +44,14 @@ func read(buf io.Reader, data interface{}) error {
   return binary.Read(buf, binary.BigEndian, data)
 }
 
-func (self *Tdh) handShake() {
+func (self *Tdh) handShake(readCode string, writeCode string) {
   data := new(bytes.Buffer)
 
   data.Write([]byte("TDHS"))
   write(data, uint32(1))
   write(data, uint32(Timeout))
-  data.Write(EMPTY_STRING)
-  data.Write(EMPTY_STRING)
+  data.Write(packStr(readCode))
+  data.Write(packStr(writeCode))
 
   header := new(bytes.Buffer)
   self.writeHeader(header, REQUEST_TYPE_SHAKE_HANDS, uint32(0), uint32(len(data.Bytes())))
