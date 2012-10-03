@@ -129,13 +129,13 @@ func (self *Tdh) Get(dbname string, table string, index string, fields []string,
                      op uint8, start uint32, limit uint32, filters []*Filter) (rows [][][]byte, 
                      fieldTypes []uint8, err error) {
   self.getOrCount(REQUEST_TYPE_GET, dbname, table, index, fields, keys, op, start, limit, filters)
-  return self.parseGetResult()
+  return self.readResult()
 }
 
 func (self *Tdh) Count(dbname string, table string, index string, fields []string, keys [][]string,
                      op uint8, start uint32, limit uint32, filters []*Filter) (count int, err error) {
   self.getOrCount(REQUEST_TYPE_COUNT, dbname, table, index, fields, keys, op, start, limit, filters)
-  rows, _, err := self.parseGetResult()
+  rows, _, err := self.readResult()
   if err != nil {
     return -1, err
   }
@@ -143,15 +143,15 @@ func (self *Tdh) Count(dbname string, table string, index string, fields []strin
   return count, nil
 }
 
-func (self *Tdh) parseGetResult() (rows [][][]byte, fieldTypes []uint8, err error) {
+func (self *Tdh) readResult() (rows [][][]byte, fieldTypes []uint8, err error) {
   code, length := self.readHeader()
   var numFields, remainLength uint32
   switch code {
   case CLIENT_STATUS_OK:
-    numFields, fieldTypes, remainLength = self.parseResultHead(length)
-    rows = self.parseResultBody(self.conn, numFields, remainLength)
+    numFields, fieldTypes, remainLength = self.readResultHead(length)
+    rows = self.readResultBody(self.conn, numFields, remainLength)
   case CLIENT_STATUS_ACCEPT:
-    numFields, fieldTypes, remainLength = self.parseResultHead(length)
+    numFields, fieldTypes, remainLength = self.readResultHead(length)
     totalLength := remainLength
     bodies := make([][]byte, 0)
     body := make([]byte, remainLength)
@@ -167,7 +167,7 @@ func (self *Tdh) parseGetResult() (rows [][][]byte, fieldTypes []uint8, err erro
         break
       }
     }
-    rows = self.parseResultBody(ReaderOfBytesArray(bodies), numFields, totalLength)
+    rows = self.readResultBody(ReaderOfBytesArray(bodies), numFields, totalLength)
   default:
     var errorCode uint32
     read(self.conn, &errorCode)
@@ -176,7 +176,7 @@ func (self *Tdh) parseGetResult() (rows [][][]byte, fieldTypes []uint8, err erro
   return rows, fieldTypes, err
 }
 
-func (self *Tdh) parseResultHead(length uint32) (numFields uint32, fieldTypes []uint8, remainLength uint32) {
+func (self *Tdh) readResultHead(length uint32) (numFields uint32, fieldTypes []uint8, remainLength uint32) {
   remainLength = length
   read(self.conn, &numFields)
   remainLength -= 4
@@ -188,7 +188,7 @@ func (self *Tdh) parseResultHead(length uint32) (numFields uint32, fieldTypes []
   return
 }
 
-func (self *Tdh) parseResultBody(buf io.Reader, numFields uint32, length uint32) [][][]byte {
+func (self *Tdh) readResultBody(buf io.Reader, numFields uint32, length uint32) [][][]byte {
   var fieldLength uint32
   rows := make([][][]byte, 0)
   for length > 0 {
