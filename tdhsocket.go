@@ -164,6 +164,20 @@ func (self *Tdh) Update(dbname string, table string, index string, fields []stri
   return match, change, nil
 }
 
+func (self *Tdh) Delete(dbname string, table string, index string, fields []string, keys [][]string,
+                     op uint8, start uint32, limit uint32, filters []*Filter) (change int, err error) {
+  data := new(bytes.Buffer)
+  self.writeSelect(data, dbname, table, index, fields, keys, op, start, limit, filters)
+  self.writeHeader(self.conn, REQUEST_TYPE_DELETE, uint32(0), uint32(len(data.Bytes())))
+  self.conn.Write(data.Bytes())
+  rows, _, err := self.readResult()
+  if err != nil {
+    return 0, err
+  }
+  change, _ = strconv.Atoi(string(rows[0][0]))
+  return change, nil
+}
+
 func (self *Tdh) readResult() (rows [][][]byte, fieldTypes []uint8, err error) {
   code, length := self.readHeader(self.conn)
   var numFields, remainLength uint32

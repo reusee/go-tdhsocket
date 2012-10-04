@@ -79,3 +79,13 @@ func TestUpdate(t *testing.T) {
   }
   fmt.Printf("%d rows matched, %d rows changed\n", match, change)
 }
+
+func TestDelete(t *testing.T) {
+  db, _ := getDb()
+  change, err := db.Delete("test", "test", "id", []string{"s"},
+  [][]string{[]string{""}}, GT, 0, 0, nil)
+  if err != nil {
+    fmt.Println(err)
+  }
+  fmt.Printf("%d rows deleted\n", change)
+}
