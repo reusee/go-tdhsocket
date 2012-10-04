@@ -4,8 +4,6 @@ import (
   "testing"
   "fmt"
   "time"
-  "bytes"
-  "io"
   "log"
 )
 
@@ -61,30 +59,4 @@ func TestCount(t *testing.T) {
     fmt.Println(err)
   }
   fmt.Printf("Count: %d\n", count)
-}
-
-func TestReader(t *testing.T) {
-  for i := 0; i <= 22; i++ {
-    buf := make([]byte, i)
-    r := ReaderOfBytesArray([][]byte{
-      []byte("A"),
-      []byte("AA"),
-      []byte("AAA"),
-      []byte("AAAA"),
-      []byte("AAAAA"),
-    })
-    n, err := r.Read(buf)
-    if i <= 15 {
-      if bytes.Compare(buf, bytes.Repeat([]byte("A"), i)) != 0 {
-        t.Fail()
-      }
-      if n != i {
-        t.Fail()
-      }
-    } else {
-      if err != io.EOF {
-        t.Fail()
-      }
-    }
-  }
 }

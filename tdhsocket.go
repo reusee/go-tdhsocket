@@ -75,7 +75,7 @@ func (self *Tdh) Insert(dbname string, table string, index string, fields []stri
   self.writeHeader(self.conn, REQUEST_TYPE_INSERT, uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 
-  code, length := self.readHeader()
+  code, length := self.readHeader(self.conn)
   if code == CLIENT_STATUS_OK {
     read(self.conn, make([]byte, length))
     err = nil
@@ -144,30 +144,12 @@ func (self *Tdh) Count(dbname string, table string, index string, fields []strin
 }
 
 func (self *Tdh) readResult() (rows [][][]byte, fieldTypes []uint8, err error) {
-  code, length := self.readHeader()
+  code, length := self.readHeader(self.conn)
   var numFields, remainLength uint32
   switch code {
-  case CLIENT_STATUS_OK:
+  case CLIENT_STATUS_OK, CLIENT_STATUS_ACCEPT:
     numFields, fieldTypes, remainLength = self.readResultHead(length)
-    rows = self.readResultBody(self.conn, numFields, remainLength)
-  case CLIENT_STATUS_ACCEPT:
-    numFields, fieldTypes, remainLength = self.readResultHead(length)
-    totalLength := remainLength
-    bodies := make([][]byte, 0)
-    body := make([]byte, remainLength)
-    read(self.conn, body)
-    bodies = append(bodies, body)
-    for {
-      code, length := self.readHeader()
-      totalLength += length
-      body := make([]byte, length)
-      read(self.conn, body)
-      bodies = append(bodies, body)
-      if code == CLIENT_STATUS_OK {
-        break
-      }
-    }
-    rows = self.readResultBody(ReaderOfBytesArray(bodies), numFields, totalLength)
+    rows = self.readResultBody(numFields, remainLength, code)
   default:
     var errorCode uint32
     read(self.conn, &errorCode)
@@ -188,18 +170,21 @@ func (self *Tdh) readResultHead(length uint32) (numFields uint32, fieldTypes []u
   return
 }
 
-func (self *Tdh) readResultBody(buf io.Reader, numFields uint32, length uint32) [][][]byte {
+func (self *Tdh) readResultBody(numFields uint32, length uint32, code uint32) [][][]byte {
+  reader := self.newResultBodyReader(length, code)
   var fieldLength uint32
   rows := make([][][]byte, 0)
-  for length > 0 {
+start:
+  for {
     fieldValues := make([][]byte, numFields)
     for i := uint32(0); i < numFields; i++ {
-      read(buf, &fieldLength)
-      length -= 4
+      err := read(reader, &fieldLength)
+      if err == io.EOF {
+        break start
+      }
       fieldValue := make([]byte, fieldLength)
       fieldValues[i] = fieldValue
-      read(buf, fieldValue)
-      length -= fieldLength
+      read(reader, fieldValue)
     }
     rows = append(rows, fieldValues)
   }
@@ -215,9 +200,9 @@ func (self *Tdh) writeHeader(buf io.Writer, command uint32, reserved uint32, len
   write(buf, length)
 }
 
-func (self *Tdh) readHeader() (uint32, uint32) {
+func (self *Tdh) readHeader(buf io.Reader) (uint32, uint32) {
   retHeader := make([]byte, 20)
-  io.ReadFull(self.conn, retHeader)
+  io.ReadFull(buf, retHeader)
   var retCode, bodyLength, pad uint32
   headerBuffer := bytes.NewBuffer(retHeader)
   read(headerBuffer, &pad)

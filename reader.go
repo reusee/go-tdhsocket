@@ -4,54 +4,59 @@ import (
   "io"
 )
 
-func ReaderOfBytesArray(ary [][]byte) *Reader {
-  return &Reader{
-    s: ary,
-    si: 0,
-    i: 0,
+func (self *Tdh) newResultBodyReader(initLength uint32, initCode uint32) *ResultBodyReader {
+  return &ResultBodyReader{
+    remainPacketLength: int(initLength),
+    lastCode: initCode,
+    buf: self.conn,
+    packetReadHeaderFunc: func(buf io.Reader) (uint32, int) {
+      code, length := self.readHeader(buf)
+      return code, int(length)
+    },
   }
 }
 
-type Reader struct {
-  s [][]byte
-  si int
-  i int
+type ResultBodyReader struct {
+  remainPacketLength int
+  lastCode uint32
+  buf io.Reader
+  packetReadHeaderFunc func(io.Reader) (uint32, int)
 }
 
-func (self *Reader) Read(target []byte) (n int, err error) {
-  need := len(target)
-  if need == 0 {
+func (self *ResultBodyReader) Read(target []byte) (alreadyReadN int, err error) {
+  needN := len(target)
+  if needN == 0 {
     return 0, nil
   }
-  if self.si >= len(self.s) {
-    return 0, io.EOF
-  }
-  if self.si >= len(self.s) - 1 && self.i >= len(self.s[self.si]) {
+  if self.remainPacketLength == 0 { // can't provide
     return 0, io.EOF
   }
 
-  targetIndex := 0
-  for need > 0 {
-    if self.si >= len(self.s) {
-      return targetIndex, io.EOF
+  var willReadN int
+  alreadyReadN = 0
+
+  for {
+    willReadN = needN
+    if self.remainPacketLength < willReadN {
+      willReadN = self.remainPacketLength
     }
-    if self.si >= len(self.s) - 1 && self.i >= len(self.s[self.si]) {
-      return targetIndex, io.EOF
+    err := read(self.buf, target[alreadyReadN : alreadyReadN + willReadN])
+    if err != nil {
+      err = io.EOF
+      break
     }
-    canProvide := len(self.s[self.si]) - self.i
-    getLength := canProvide
-    if need < getLength {
-      getLength = need
+    self.remainPacketLength -= willReadN
+    alreadyReadN += willReadN
+    needN -= willReadN
+    if self.remainPacketLength == 0 && self.lastCode == CLIENT_STATUS_ACCEPT { // read next packet
+      self.lastCode, self.remainPacketLength = self.packetReadHeaderFunc(self.buf)
     }
-    readN := copy(target[targetIndex:], self.s[self.si][self.i : self.i + getLength])
-    need -= readN
-    targetIndex += readN
-    self.i += readN
-    if self.i >= len(self.s[self.si]) {
-      self.si += 1
-      self.i = 0
+    if needN == 0 {
+      break
+    } else if self.remainPacketLength == 0 { // can't provide
+      err = io.EOF
+      break
     }
   }
-
-  return len(target), nil
+  return
 }
