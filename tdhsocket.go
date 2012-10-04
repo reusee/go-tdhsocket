@@ -52,7 +52,7 @@ func (self *Tdh) handShake(readCode string, writeCode string) {
   writeStr(data, readCode)
   writeStr(data, writeCode)
 
-  self.writeHeader(self.conn, REQUEST_TYPE_SHAKE_HANDS, uint32(0), uint32(len(data.Bytes())))
+  self.writeHeader(self.conn, REQUEST_TYPE_SHAKE_HANDS, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 }
 
@@ -64,6 +64,7 @@ func (self *Tdh) writeInsertRequest(data io.Writer, dbname string, table string,
   for _, field := range fields {
     writeStr(data, field)
   }
+
   write(data, uint32(len(values)))
   for _, value := range values {
     data.Write([]byte("\x00"))
@@ -71,12 +72,7 @@ func (self *Tdh) writeInsertRequest(data io.Writer, dbname string, table string,
   }
 }
 
-func (self *Tdh) Insert(dbname string, table string, index string, fields []string, values []string) (err error) {
-  data := new(bytes.Buffer)
-  self.writeInsertRequest(data, dbname, table, index, fields, values)
-  self.writeHeader(self.conn, REQUEST_TYPE_INSERT, uint32(0), uint32(len(data.Bytes())))
-  self.conn.Write(data.Bytes())
-
+func (self *Tdh) readInsertResult() (err error) {
   code, length := self.readHeader(self.conn)
   if code == CLIENT_STATUS_OK {
     read(self.conn, make([]byte, length))
@@ -86,7 +82,16 @@ func (self *Tdh) Insert(dbname string, table string, index string, fields []stri
     read(self.conn, &errorCode)
     err = &Error{code, errorCode}
   }
-  return
+  return err
+}
+
+func (self *Tdh) Insert(dbname string, table string, index string, fields []string, values []string) (err error) {
+  data := new(bytes.Buffer)
+  self.writeInsertRequest(data, dbname, table, index, fields, values)
+  self.writeHeader(self.conn, REQUEST_TYPE_INSERT, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
+  self.conn.Write(data.Bytes())
+
+  return self.readInsertResult()
 }
 
 type Filter struct {
@@ -104,6 +109,7 @@ func (self *Tdh) writeGetRequest(data io.Writer, dbname string, table string, in
   for _, field := range fields {
     writeStr(data, field)
   }
+
   write(data, uint32(len(keys)))
   for _, key := range keys {
     write(data, uint32(len(key)))
@@ -127,19 +133,14 @@ func (self *Tdh) Get(dbname string, table string, index string, fields []string,
                      fieldTypes []uint8, err error) {
   data := new(bytes.Buffer)
   self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
-  self.writeHeader(self.conn, REQUEST_TYPE_GET, uint32(0), uint32(len(data.Bytes())))
+  fmt.Printf("Get data: %#q\n", data)
+  self.writeHeader(self.conn, REQUEST_TYPE_GET, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 
   return self.readResult()
 }
 
-func (self *Tdh) Count(dbname string, table string, index string, fields []string, keys [][]string,
-                     op uint8, start uint32, limit uint32, filters []*Filter) (count int, err error) {
-  data := new(bytes.Buffer)
-  self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
-  self.writeHeader(self.conn, REQUEST_TYPE_COUNT, uint32(0), uint32(len(data.Bytes())))
-  self.conn.Write(data.Bytes())
-
+func (self *Tdh) readCountResult() (count int, err error) {
   rows, _, err := self.readResult()
   if err != nil {
     return -1, err
@@ -148,45 +149,118 @@ func (self *Tdh) Count(dbname string, table string, index string, fields []strin
   return count, nil
 }
 
-func (self *Tdh) writeUpdateRequest(data io.Writer, dbname string, table string, index string, fields []string, keys [][]string,
-                                    op uint8, start uint32, limit uint32, filters []*Filter, newValues []string) {
+func (self *Tdh) Count(dbname string, table string, index string, fields []string, keys [][]string,
+                     op uint8, start uint32, limit uint32, filters []*Filter) (count int, err error) {
+  data := new(bytes.Buffer)
   self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
-  write(data, uint32(len(newValues)))
-  for _, value := range newValues {
+  self.writeHeader(self.conn, REQUEST_TYPE_COUNT, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
+  self.conn.Write(data.Bytes())
+
+  return self.readCountResult()
+}
+
+func (self *Tdh) writeUpdateRequest(data io.Writer, dbname string, table string, index string, fields []string, keys [][]string,
+                                    op uint8, start uint32, limit uint32, filters []*Filter, values []string) {
+  self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
+  write(data, uint32(len(values)))
+  for _, value := range values {
     write(data, uint8(0))
     writeStr(data, value)
   }
 }
 
-func (self *Tdh) Update(dbname string, table string, index string, fields []string, keys [][]string,
-                        op uint8, start uint32, limit uint32, filters []*Filter, newValues []string) (match int, change int, err error) {
-  data := new(bytes.Buffer)
-  self.writeUpdateRequest(data, dbname, table, index, fields, keys, op, start, limit, filters, newValues)
-  self.writeHeader(self.conn, REQUEST_TYPE_UPDATE, uint32(0), uint32(len(data.Bytes())))
-  self.conn.Write(data.Bytes())
-
+func (self *Tdh) readUpdateResult() (count int, change int, err error) {
   rows, _, err := self.readResult()
   if err != nil {
     return 0, 0, err
   }
-  match, _ = strconv.Atoi(string(rows[0][0]))
+  count, _ = strconv.Atoi(string(rows[0][0]))
   change, _ = strconv.Atoi(string(rows[0][1]))
-  return match, change, nil
+  return count, change, nil
 }
 
-func (self *Tdh) Delete(dbname string, table string, index string, fields []string, keys [][]string,
-                     op uint8, start uint32, limit uint32, filters []*Filter) (change int, err error) {
+func (self *Tdh) Update(dbname string, table string, index string, fields []string, keys [][]string,
+                        op uint8, start uint32, limit uint32, filters []*Filter, values []string) (count int, change int, err error) {
   data := new(bytes.Buffer)
-  self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
-  self.writeHeader(self.conn, REQUEST_TYPE_DELETE, uint32(0), uint32(len(data.Bytes())))
+  self.writeUpdateRequest(data, dbname, table, index, fields, keys, op, start, limit, filters, values)
+  self.writeHeader(self.conn, REQUEST_TYPE_UPDATE, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 
+  return self.readUpdateResult()
+}
+
+func (self *Tdh) readDeleteResult() (change int, err error) {
   rows, _, err := self.readResult()
   if err != nil {
     return 0, err
   }
   change, _ = strconv.Atoi(string(rows[0][0]))
   return change, nil
+}
+
+func (self *Tdh) Delete(dbname string, table string, index string, fields []string, keys [][]string,
+                     op uint8, start uint32, limit uint32, filters []*Filter) (change int, err error) {
+  data := new(bytes.Buffer)
+  self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
+  self.writeHeader(self.conn, REQUEST_TYPE_DELETE, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
+  self.conn.Write(data.Bytes())
+
+  return self.readDeleteResult()
+}
+
+func (self *Tdh) Batch(requests ...*Request) (ret []*Response, err error) {
+  data := new(bytes.Buffer)
+  reqTypes := make([]int, len(requests))
+  headerSequence := self.getSequence()
+  for i, r := range requests {
+    reqTypes[i] = r.req.t
+    switch r.req.t {
+    case DELETE:
+      subdata := new(bytes.Buffer)
+      self.writeGetRequest(subdata, r.req.dbname, r.req.table, r.req.index, r.req.fields, r.keys, r.op, r.start, r.limit, r.filters)
+      self.writeHeader(data, REQUEST_TYPE_DELETE, self.getSequence(), uint32(0), uint32(len(subdata.Bytes())))
+      data.Write(subdata.Bytes())
+    case UPDATE:
+      subdata := new(bytes.Buffer)
+      self.writeUpdateRequest(subdata, r.req.dbname, r.req.table, r.req.index, r.req.fields, r.keys, r.op, r.start, r.limit, r.filters, r.values)
+      self.writeHeader(data, REQUEST_TYPE_UPDATE, self.getSequence(), uint32(0), uint32(len(subdata.Bytes())))
+      data.Write(subdata.Bytes())
+    case INSERT:
+      subdata := new(bytes.Buffer)
+      self.writeInsertRequest(subdata, r.req.dbname, r.req.table, r.req.index, r.req.fields, r.values)
+      self.writeHeader(data, REQUEST_TYPE_INSERT, self.getSequence(), uint32(0), uint32(len(subdata.Bytes())))
+      data.Write(subdata.Bytes())
+    default:
+      panic("Batch request type unknown. Be sure pointer is passed")
+    }
+  }
+  header := new(bytes.Buffer)
+  self.writeHeader(header, REQUEST_TYPE_BATCH, headerSequence, uint32(len(requests)), uint32(len(data.Bytes())))
+  self.conn.Write(header.Bytes())
+  self.conn.Write(data.Bytes())
+
+  ret = make([]*Response, len(requests))
+  code, _ := self.readHeader(self.conn)
+  if code != CLIENT_STATUS_MULTI_STATUS {
+    var errorCode uint32
+    read(self.conn, &errorCode)
+    err = &Error{code, errorCode}
+    return ret, err
+  }
+  for i := 0; i < len(requests); i++ {
+    switch reqTypes[i] {
+    case DELETE:
+      change, err := self.readDeleteResult()
+      ret[i] = &Response{t: DELETE, change: change, count: change, err: err}
+    case UPDATE:
+      count, change, err := self.readUpdateResult()
+      ret[i] = &Response{t: UPDATE, count: count, change: change, err: err}
+    case INSERT:
+      err := self.readInsertResult()
+      ret[i] = &Response{t: INSERT, err: err}
+    }
+  }
+  return ret, nil
 }
 
 func (self *Tdh) readResult() (rows [][][]byte, fieldTypes []uint8, err error) {
@@ -237,11 +311,15 @@ start:
   return rows
 }
 
-func (self *Tdh) writeHeader(buf io.Writer, command uint32, reserved uint32, length uint32) {
+func (self *Tdh) getSequence() uint32 {
+  self.sequenceId++
+  return self.sequenceId
+}
+
+func (self *Tdh) writeHeader(buf io.Writer, command uint32, sequence uint32, reserved uint32, length uint32) {
   write(buf, uint32(0xffffffff))
   write(buf, command)
-  self.sequenceId++
-  write(buf, self.sequenceId)
+  write(buf, sequence)
   write(buf, reserved)
   write(buf, length)
 }
@@ -266,4 +344,29 @@ type Error struct {
 
 func (self *Error) Error() string {
   return fmt.Sprintf("response code: %d, error code: %d", self.ResponseCode, self.ErrorCode)
+}
+
+type Req struct {
+  t int
+  dbname string
+  table string
+  index string
+  fields []string
+}
+
+type Request struct {
+  req *Req
+  keys [][]string
+  op uint8
+  start uint32
+  limit uint32
+  filters []*Filter
+  values []string
+}
+
+type Response struct {
+  t int
+  change int
+  count int
+  err error
 }

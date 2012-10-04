@@ -7,6 +7,7 @@ const (
   REQUEST_TYPE_UPDATE uint32 = 10
   REQUEST_TYPE_DELETE uint32 = 11
   REQUEST_TYPE_INSERT uint32 = 12
+  REQUEST_TYPE_BATCH uint32 = 20
 
   CLIENT_STATUS_OK = 200 //完成所有数据的返回
   CLIENT_STATUS_ACCEPT = 202 //对于流的处理,还有未返回的数据
@@ -28,4 +29,8 @@ const (
   FILTER_GT uint8 = 3 // >
   FILTER_LT uint8 = 4 // <
   FILTER_NOT uint8 = 5 // !
+
+  INSERT = iota
+  UPDATE
+  DELETE
 )

@@ -7,7 +7,7 @@ import (
   "log"
 )
 
-// create table test (id serial, i bigint(255) default null, s longblob default null, f double default null, t boolean default null) engine=innodb;
+// mysql> create table test (id serial, i bigint(255) default null, s longblob default null, f double default null, t boolean default null, index(i), index(f)) engine=innodb;
 
 func getDb() (*Tdh, error) {
   db, err := New("localhost:45678", "", "")
@@ -88,4 +88,45 @@ func TestDelete(t *testing.T) {
     fmt.Println(err)
   }
   fmt.Printf("%d rows deleted\n", change)
+}
+
+func TestBatch(t *testing.T) {
+  fmt.Printf("===== start batch =====\n")
+  db, _ := getDb()
+  n := fmt.Sprintf("%d", time.Now().UnixNano())
+  _, err := db.Batch(
+    &Request{req: &Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
+      values: []string{n, "SS", "5.5", "1"}},
+    &Request{req: &Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
+      values: []string{n, "你好", "5.5", "1"}},
+    &Request{req: &Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
+      values: []string{n, "--", "5.5", "1"}},
+    &Request{req: &Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
+      values: []string{n, "BIG", "5.5", "1"}},
+  )
+  if err != nil {
+    t.Fail()
+  }
+  count, err := db.Count("test", "test", "i", []string{"i"}, 
+    [][]string{[]string{n}}, EQ, 0, 0, nil)
+  if err != nil || count != 4 {
+    fmt.Printf("%s\n", err)
+    t.Fail()
+  }
+  res, err := db.Batch(
+    &Request{req: &Req{UPDATE, "test", "test", "i", []string{"f"}},
+      keys: [][]string{[]string{n}}, op: EQ, limit: 3,
+      values: []string{"3.3"}},
+    &Request{req: &Req{DELETE, "test", "test", "f", []string{"f"}},
+      keys: [][]string{[]string{"3.3"}}, op: EQ},
+  )
+  if err != nil {
+    t.Fail()
+  }
+  if res[0].count != 3 {
+    t.Fail()
+  }
+  if res[1].count != 3 {
+    t.Fail()
+  }
 }
