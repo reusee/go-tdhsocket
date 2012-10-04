@@ -93,10 +93,8 @@ type Filter struct {
   value string
 }
 
-func (self *Tdh) getOrCount(reqType uint32, dbname string, table string, index string, fields []string, keys [][]string,
+func (self *Tdh) writeSelect(data io.Writer, dbname string, table string, index string, fields []string, keys [][]string,
                      op uint8, start uint32, limit uint32, filters []*Filter) {
-  data := new(bytes.Buffer)
-
   writeStr(data, dbname)
   writeStr(data, table)
   writeStr(data, index)
@@ -120,27 +118,50 @@ func (self *Tdh) getOrCount(reqType uint32, dbname string, table string, index s
     write(data, filter.op)
     writeStr(data, filter.value)
   }
-
-  self.writeHeader(self.conn, reqType, uint32(0), uint32(len(data.Bytes())))
-  self.conn.Write(data.Bytes())
 }
 
 func (self *Tdh) Get(dbname string, table string, index string, fields []string, keys [][]string,
                      op uint8, start uint32, limit uint32, filters []*Filter) (rows [][][]byte, 
                      fieldTypes []uint8, err error) {
-  self.getOrCount(REQUEST_TYPE_GET, dbname, table, index, fields, keys, op, start, limit, filters)
+  data := new(bytes.Buffer)
+  self.writeSelect(data, dbname, table, index, fields, keys, op, start, limit, filters)
+  self.writeHeader(self.conn, REQUEST_TYPE_GET, uint32(0), uint32(len(data.Bytes())))
+  self.conn.Write(data.Bytes())
   return self.readResult()
 }
 
 func (self *Tdh) Count(dbname string, table string, index string, fields []string, keys [][]string,
                      op uint8, start uint32, limit uint32, filters []*Filter) (count int, err error) {
-  self.getOrCount(REQUEST_TYPE_COUNT, dbname, table, index, fields, keys, op, start, limit, filters)
+  data := new(bytes.Buffer)
+  self.writeSelect(data, dbname, table, index, fields, keys, op, start, limit, filters)
+  self.writeHeader(self.conn, REQUEST_TYPE_COUNT, uint32(0), uint32(len(data.Bytes())))
+  self.conn.Write(data.Bytes())
   rows, _, err := self.readResult()
   if err != nil {
     return -1, err
   }
   count, _ = strconv.Atoi(string(rows[0][0]))
   return count, nil
+}
+
+func (self *Tdh) Update(dbname string, table string, index string, fields []string, keys[][]string,
+                        op uint8, start uint32, limit uint32, filters []*Filter, newValues []string) (match int, change int, err error) {
+  data := new(bytes.Buffer)
+  self.writeSelect(data, dbname, table, index, fields, keys, op, start, limit, filters)
+  write(data, uint32(len(newValues)))
+  for _, value := range newValues {
+    write(data, uint8(0))
+    writeStr(data, value)
+  }
+  self.writeHeader(self.conn, REQUEST_TYPE_UPDATE, uint32(0), uint32(len(data.Bytes())))
+  self.conn.Write(data.Bytes())
+  rows, _, err := self.readResult()
+  if err != nil {
+    return 0, 0, err
+  }
+  match, _ = strconv.Atoi(string(rows[0][0]))
+  change, _ = strconv.Atoi(string(rows[0][1]))
+  return match, change, nil
 }
 
 func (self *Tdh) readResult() (rows [][][]byte, fieldTypes []uint8, err error) {

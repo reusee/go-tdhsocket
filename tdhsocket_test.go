@@ -68,3 +68,14 @@ func TestCount(t *testing.T) {
   }
   fmt.Printf("Count: %d\n", count)
 }
+
+func TestUpdate(t *testing.T) {
+  db, _ := getDb()
+  match, change, err := db.Update("test", "test", "id", []string{"s"},
+  [][]string{[]string{""}}, GT, 0, 0, nil,
+  []string{"OK"})
+  if err != nil {
+    fmt.Println(err)
+  }
+  fmt.Printf("%d rows matched, %d rows changed\n", match, change)
+}

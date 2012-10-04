@@ -1,4 +1,3 @@
-UPDATE
-close cached tables
 DELETE
 BATCH
+close cached tables
