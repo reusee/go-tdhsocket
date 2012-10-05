@@ -4,7 +4,7 @@ import (
   "io"
 )
 
-func (self *Tdh) newResultBodyReader(initLength uint32, initCode uint32) *ResultBodyReader {
+func (self *Conn) newResultBodyReader(initLength uint32, initCode uint32) *ResultBodyReader {
   return &ResultBodyReader{
     remainPacketLength: int(initLength),
     lastCode: initCode,

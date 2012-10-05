@@ -9,7 +9,7 @@ import (
 
 // mysql> create table test (id serial, i bigint(255) default null, s longblob default null, f double default null, t boolean default null, index(i), index(f)) engine=innodb;
 
-func getDb() (*Tdh, error) {
+func getDb() (*Conn, error) {
   db, err := New("localhost:45678", "", "")
   if err != nil {
     log.Fatal("connect error, mysql not started?")
