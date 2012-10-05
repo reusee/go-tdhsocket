@@ -214,19 +214,17 @@ func (self *Tdh) Batch(requests ...*Request) (ret []*Response, err error) {
   headerSequence := self.getSequence()
   for i, r := range requests {
     reqTypes[i] = r.req.t
+    subdata := new(bytes.Buffer)
     switch r.req.t {
     case DELETE:
-      subdata := new(bytes.Buffer)
       self.writeGetRequest(subdata, r.req.dbname, r.req.table, r.req.index, r.req.fields, r.keys, r.op, r.start, r.limit, r.filters)
       self.writeHeader(data, REQUEST_TYPE_DELETE, self.getSequence(), uint32(0), uint32(len(subdata.Bytes())))
       data.Write(subdata.Bytes())
     case UPDATE:
-      subdata := new(bytes.Buffer)
       self.writeUpdateRequest(subdata, r.req.dbname, r.req.table, r.req.index, r.req.fields, r.keys, r.op, r.start, r.limit, r.filters, r.values)
       self.writeHeader(data, REQUEST_TYPE_UPDATE, self.getSequence(), uint32(0), uint32(len(subdata.Bytes())))
       data.Write(subdata.Bytes())
     case INSERT:
-      subdata := new(bytes.Buffer)
       self.writeInsertRequest(subdata, r.req.dbname, r.req.table, r.req.index, r.req.fields, r.values)
       self.writeHeader(data, REQUEST_TYPE_INSERT, self.getSequence(), uint32(0), uint32(len(subdata.Bytes())))
       data.Write(subdata.Bytes())
@@ -234,9 +232,7 @@ func (self *Tdh) Batch(requests ...*Request) (ret []*Response, err error) {
       panic("Batch request type unknown. Be sure pointer is passed")
     }
   }
-  header := new(bytes.Buffer)
-  self.writeHeader(header, REQUEST_TYPE_BATCH, headerSequence, uint32(len(requests)), uint32(len(data.Bytes())))
-  self.conn.Write(header.Bytes())
+  self.writeHeader(self.conn, REQUEST_TYPE_BATCH, headerSequence, uint32(len(requests)), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 
   ret = make([]*Response, len(requests))
@@ -325,15 +321,12 @@ func (self *Tdh) writeHeader(buf io.Writer, command uint32, sequence uint32, res
 }
 
 func (self *Tdh) readHeader(buf io.Reader) (uint32, uint32) {
-  retHeader := make([]byte, 20)
-  io.ReadFull(buf, retHeader)
   var retCode, bodyLength, pad uint32
-  headerBuffer := bytes.NewBuffer(retHeader)
-  read(headerBuffer, &pad)
-  read(headerBuffer, &retCode)
-  read(headerBuffer, &pad)
-  read(headerBuffer, &pad)
-  read(headerBuffer, &bodyLength)
+  read(self.conn, &pad)
+  read(self.conn, &retCode)
+  read(self.conn, &pad)
+  read(self.conn, &pad)
+  read(self.conn, &bodyLength)
   return retCode, bodyLength
 }
 
