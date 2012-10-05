@@ -91,7 +91,6 @@ func TestDelete(t *testing.T) {
 }
 
 func TestBatch(t *testing.T) {
-  fmt.Printf("===== start batch =====\n")
   db, _ := getDb()
   n := fmt.Sprintf("%d", time.Now().UnixNano())
   _, err := db.Batch(
@@ -129,4 +128,14 @@ func TestBatch(t *testing.T) {
   if res[1].count != 3 {
     t.Fail()
   }
+}
+
+func TestErrorMessage(t *testing.T) {
+  db, _ := getDb()
+  err := db.Insert("Notest", "test", "", []string{"i"}, []string{"OK"})
+  fmt.Printf("Error: %s\n", err)
+  err = db.Insert("test", "test", "", []string{"9"}, []string{"OK"})
+  fmt.Printf("Error: %s\n", err)
+  err = db.Insert("test", "test", "", []string{"9"}, []string{"OK", "YES"})
+  fmt.Printf("Error: %s\n", err)
 }

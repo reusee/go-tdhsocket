@@ -338,12 +338,14 @@ func (self *Tdh) readHeader(buf io.Reader) (uint32, uint32) {
 }
 
 type Error struct {
-  ResponseCode uint32
+  ClientStatus uint32
   ErrorCode uint32
 }
 
 func (self *Error) Error() string {
-  return fmt.Sprintf("response code: %d, error code: %d", self.ResponseCode, self.ErrorCode)
+  return fmt.Sprintf("(%d) %s, (%d) %s", 
+    self.ClientStatus, ClientStatusMessage[self.ClientStatus],
+    self.ErrorCode, ErrorCodeMessage[self.ErrorCode])
 }
 
 type Req struct {
