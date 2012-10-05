@@ -94,13 +94,13 @@ func TestBatch(t *testing.T) {
   db, _ := getDb()
   n := fmt.Sprintf("%d", time.Now().UnixNano())
   _, err := db.Batch(
-    &Request{req: &Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
+    Request{req: Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
       values: []string{n, "SS", "5.5", "1"}},
-    &Request{req: &Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
+    Request{req: Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
       values: []string{n, "你好", "5.5", "1"}},
-    &Request{req: &Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
+    Request{req: Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
       values: []string{n, "--", "5.5", "1"}},
-    &Request{req: &Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
+    Request{req: Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
       values: []string{n, "BIG", "5.5", "1"}},
   )
   if err != nil {
@@ -113,10 +113,10 @@ func TestBatch(t *testing.T) {
     t.Fail()
   }
   res, err := db.Batch(
-    &Request{req: &Req{UPDATE, "test", "test", "i", []string{"f"}},
+    Request{req: Req{UPDATE, "test", "test", "i", []string{"f"}},
       keys: [][]string{[]string{n}}, op: EQ, limit: 3,
       values: []string{"3.3"}},
-    &Request{req: &Req{DELETE, "test", "test", "f", []string{"f"}},
+    Request{req: Req{DELETE, "test", "test", "f", []string{"f"}},
       keys: [][]string{[]string{"3.3"}}, op: EQ},
   )
   if err != nil {

@@ -30,6 +30,10 @@ func New(hostPort string, readCode string, writeCode string) (*Tdh, error) {
 }
 
 func writeStr(buf io.Writer, str string) {
+  if str == "(null)" {
+    write(buf, uint32(0))
+    return
+  }
   write(buf, uint32(len(str) + 1))
   buf.Write([]byte(str))
   buf.Write([]byte("\x00"))
@@ -94,14 +98,8 @@ func (self *Tdh) Insert(dbname string, table string, index string, fields []stri
   return self.readInsertResult()
 }
 
-type Filter struct {
-  field string
-  op uint8
-  value string
-}
-
 func (self *Tdh) writeGetRequest(data io.Writer, dbname string, table string, index string, fields []string, keys [][]string,
-                     op uint8, start uint32, limit uint32, filters []*Filter) {
+                     op uint8, start uint32, limit uint32, filters []Filter) {
   writeStr(data, dbname)
   writeStr(data, table)
   writeStr(data, index)
@@ -129,7 +127,7 @@ func (self *Tdh) writeGetRequest(data io.Writer, dbname string, table string, in
 }
 
 func (self *Tdh) Get(dbname string, table string, index string, fields []string, keys [][]string,
-                     op uint8, start uint32, limit uint32, filters []*Filter) (rows [][][]byte, 
+                     op uint8, start uint32, limit uint32, filters []Filter) (rows [][][]byte, 
                      fieldTypes []uint8, err error) {
   data := new(bytes.Buffer)
   self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
@@ -150,7 +148,7 @@ func (self *Tdh) readCountResult() (count int, err error) {
 }
 
 func (self *Tdh) Count(dbname string, table string, index string, fields []string, keys [][]string,
-                     op uint8, start uint32, limit uint32, filters []*Filter) (count int, err error) {
+                     op uint8, start uint32, limit uint32, filters []Filter) (count int, err error) {
   data := new(bytes.Buffer)
   self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
   self.writeHeader(self.conn, REQUEST_TYPE_COUNT, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
@@ -160,7 +158,7 @@ func (self *Tdh) Count(dbname string, table string, index string, fields []strin
 }
 
 func (self *Tdh) writeUpdateRequest(data io.Writer, dbname string, table string, index string, fields []string, keys [][]string,
-                                    op uint8, start uint32, limit uint32, filters []*Filter, values []string) {
+                                    op uint8, start uint32, limit uint32, filters []Filter, values []string) {
   self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
   write(data, uint32(len(values)))
   for _, value := range values {
@@ -180,7 +178,7 @@ func (self *Tdh) readUpdateResult() (count int, change int, err error) {
 }
 
 func (self *Tdh) Update(dbname string, table string, index string, fields []string, keys [][]string,
-                        op uint8, start uint32, limit uint32, filters []*Filter, values []string) (count int, change int, err error) {
+                        op uint8, start uint32, limit uint32, filters []Filter, values []string) (count int, change int, err error) {
   data := new(bytes.Buffer)
   self.writeUpdateRequest(data, dbname, table, index, fields, keys, op, start, limit, filters, values)
   self.writeHeader(self.conn, REQUEST_TYPE_UPDATE, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
@@ -199,7 +197,7 @@ func (self *Tdh) readDeleteResult() (change int, err error) {
 }
 
 func (self *Tdh) Delete(dbname string, table string, index string, fields []string, keys [][]string,
-                     op uint8, start uint32, limit uint32, filters []*Filter) (change int, err error) {
+                     op uint8, start uint32, limit uint32, filters []Filter) (change int, err error) {
   data := new(bytes.Buffer)
   self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
   self.writeHeader(self.conn, REQUEST_TYPE_DELETE, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
@@ -208,7 +206,7 @@ func (self *Tdh) Delete(dbname string, table string, index string, fields []stri
   return self.readDeleteResult()
 }
 
-func (self *Tdh) Batch(requests ...*Request) (ret []*Response, err error) {
+func (self *Tdh) Batch(requests ...Request) (ret []Response, err error) {
   data := new(bytes.Buffer)
   reqTypes := make([]int, len(requests))
   headerSequence := self.getSequence()
@@ -235,7 +233,7 @@ func (self *Tdh) Batch(requests ...*Request) (ret []*Response, err error) {
   self.writeHeader(self.conn, REQUEST_TYPE_BATCH, headerSequence, uint32(len(requests)), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 
-  ret = make([]*Response, len(requests))
+  ret = make([]Response, len(requests))
   code, _ := self.readHeader(self.conn)
   if code != CLIENT_STATUS_MULTI_STATUS {
     var errorCode uint32
@@ -247,13 +245,13 @@ func (self *Tdh) Batch(requests ...*Request) (ret []*Response, err error) {
     switch reqTypes[i] {
     case DELETE:
       change, err := self.readDeleteResult()
-      ret[i] = &Response{t: DELETE, change: change, count: change, err: err}
+      ret[i] = Response{t: DELETE, change: change, count: change, err: err}
     case UPDATE:
       count, change, err := self.readUpdateResult()
-      ret[i] = &Response{t: UPDATE, count: count, change: change, err: err}
+      ret[i] = Response{t: UPDATE, count: count, change: change, err: err}
     case INSERT:
       err := self.readInsertResult()
-      ret[i] = &Response{t: INSERT, err: err}
+      ret[i] = Response{t: INSERT, err: err}
     }
   }
   return ret, nil
@@ -341,6 +339,12 @@ func (self *Error) Error() string {
     self.ErrorCode, ErrorCodeMessage[self.ErrorCode])
 }
 
+type Filter struct {
+  field string
+  op uint8
+  value string
+}
+
 type Req struct {
   t int
   dbname string
@@ -350,12 +354,12 @@ type Req struct {
 }
 
 type Request struct {
-  req *Req
+  req Req
   keys [][]string
   op uint8
   start uint32
   limit uint32
-  filters []*Filter
+  filters []Filter
   values []string
 }
 
