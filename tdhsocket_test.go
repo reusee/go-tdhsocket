@@ -90,46 +90,6 @@ func TestDelete(t *testing.T) {
   fmt.Printf("%d rows deleted\n", change)
 }
 
-func TestBatch(t *testing.T) {
-  db, _ := getDb()
-  n := fmt.Sprintf("%d", time.Now().UnixNano())
-  _, err := db.Batch(
-    Request{req: Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
-      values: []string{n, "SS", "5.5", "1"}},
-    Request{req: Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
-      values: []string{n, "你好", "5.5", "1"}},
-    Request{req: Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
-      values: []string{n, "--", "5.5", "1"}},
-    Request{req: Req{INSERT, "test", "test", "id", []string{"i", "s", "f", "t"}},
-      values: []string{n, "BIG", "5.5", "1"}},
-  )
-  if err != nil {
-    t.Fail()
-  }
-  count, err := db.Count("test", "test", "i", []string{"i"}, 
-    [][]string{[]string{n}}, EQ, 0, 0, nil)
-  if err != nil || count != 4 {
-    fmt.Printf("%s\n", err)
-    t.Fail()
-  }
-  res, err := db.Batch(
-    Request{req: Req{UPDATE, "test", "test", "i", []string{"f"}},
-      keys: [][]string{[]string{n}}, op: EQ, limit: 3,
-      values: []string{"3.3"}},
-    Request{req: Req{DELETE, "test", "test", "f", []string{"f"}},
-      keys: [][]string{[]string{"3.3"}}, op: EQ},
-  )
-  if err != nil {
-    t.Fail()
-  }
-  if res[0].count != 3 {
-    t.Fail()
-  }
-  if res[1].count != 3 {
-    t.Fail()
-  }
-}
-
 func TestErrorMessage(t *testing.T) {
   db, _ := getDb()
   err := db.Insert("Notest", "test", "", []string{"i"}, []string{"OK"})
@@ -150,4 +110,27 @@ func TestErrorMessage(t *testing.T) {
     t.Fail()
   }
   fmt.Printf("Error: %s\n", err)
+}
+
+func TestBatch(t *testing.T) {
+  db, _ := getDb()
+  db.Batch()
+  db.Insert("test", "test", "", []string{"s"}, []string{"Batch Insert"})
+  db.Update("test", "test", "id", []string{"s"},
+    [][]string{[]string{""}}, GT, 0, 0, nil,
+    []string{"OK"})
+  db.Delete("test", "test", "id", []string{"s"},
+    [][]string{[]string{""}}, GT, 0, 0, nil)
+  res, err := db.Commit()
+  if err != nil {
+    fmt.Printf("Batch error: %s\n", err)
+  }
+  if len(res) != 3 {
+    t.Fail()
+  }
+  for _, r := range res {
+    if r.err != nil {
+      t.Fail()
+    }
+  }
 }

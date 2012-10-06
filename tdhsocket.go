@@ -16,15 +16,28 @@ var (
 type Conn struct {
   conn net.Conn
   sequenceId uint32
+
+  batchBuffer *bytes.Buffer
+  batchSeqId uint32
+  batchReqTypes []int
+  inBatchMode bool
+
+  writer io.Writer
 }
 
 func New(hostPort string, readCode string, writeCode string) (*Conn, error) {
-  self := &Conn{}
+  self := &Conn{
+    batchBuffer: new(bytes.Buffer),
+    batchReqTypes: make([]int, 0),
+    inBatchMode: false,
+  }
+  self.batchSeqId = self.getSequence()
   conn, err := net.Dial("tcp", hostPort)
   if err != nil {
     return nil, err
   }
   self.conn = conn
+  self.writer = self.conn
   self.handShake(readCode, writeCode)
   return self, nil
 }
@@ -92,10 +105,13 @@ func (self *Conn) readInsertResult() (err error) {
 func (self *Conn) Insert(dbname string, table string, index string, fields []string, values []string) (err error) {
   data := new(bytes.Buffer)
   self.writeInsertRequest(data, dbname, table, index, fields, values)
-  self.writeHeader(self.conn, REQUEST_TYPE_INSERT, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
-  self.conn.Write(data.Bytes())
-
-  err = self.readInsertResult()
+  self.writeHeader(self.writer, REQUEST_TYPE_INSERT, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
+  self.writer.Write(data.Bytes())
+  if self.inBatchMode {
+    self.batchReqTypes = append(self.batchReqTypes, INSERT)
+  } else {
+    err = self.readInsertResult()
+  }
   return
 }
 
@@ -132,7 +148,6 @@ func (self *Conn) Get(dbname string, table string, index string, fields []string
                      fieldTypes []uint8, err error) {
   data := new(bytes.Buffer)
   self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
-  fmt.Printf("Get data: %#q\n", data)
   self.writeHeader(self.conn, REQUEST_TYPE_GET, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 
@@ -182,10 +197,13 @@ func (self *Conn) Update(dbname string, table string, index string, fields []str
                         op uint8, start uint32, limit uint32, filters []Filter, values []string) (count int, change int, err error) {
   data := new(bytes.Buffer)
   self.writeUpdateRequest(data, dbname, table, index, fields, keys, op, start, limit, filters, values)
-  self.writeHeader(self.conn, REQUEST_TYPE_UPDATE, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
-  self.conn.Write(data.Bytes())
-
-  count, change, err = self.readUpdateResult()
+  self.writeHeader(self.writer, REQUEST_TYPE_UPDATE, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
+  self.writer.Write(data.Bytes())
+  if self.inBatchMode {
+    self.batchReqTypes = append(self.batchReqTypes, UPDATE)
+  } else {
+    count, change, err = self.readUpdateResult()
+  }
   return
 }
 
@@ -202,40 +220,51 @@ func (self *Conn) Delete(dbname string, table string, index string, fields []str
                      op uint8, start uint32, limit uint32, filters []Filter) (change int, err error) {
   data := new(bytes.Buffer)
   self.writeGetRequest(data, dbname, table, index, fields, keys, op, start, limit, filters)
-  self.writeHeader(self.conn, REQUEST_TYPE_DELETE, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
-  self.conn.Write(data.Bytes())
-
-  return self.readDeleteResult()
+  self.writeHeader(self.writer, REQUEST_TYPE_DELETE, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
+  self.writer.Write(data.Bytes())
+  if self.inBatchMode {
+    self.batchReqTypes = append(self.batchReqTypes, DELETE)
+  } else {
+    change, err = self.readDeleteResult()
+  }
+  return
 }
 
-func (self *Conn) Batch(requests ...Request) (ret []Response, err error) {
-  data := new(bytes.Buffer)
-  reqTypes := make([]int, len(requests))
-  headerSequence := self.getSequence()
-  for i, r := range requests {
-    reqTypes[i] = r.req.t
-    subdata := new(bytes.Buffer)
-    switch r.req.t {
-    case DELETE:
-      self.writeGetRequest(subdata, r.req.dbname, r.req.table, r.req.index, r.req.fields, r.keys, r.op, r.start, r.limit, r.filters)
-      self.writeHeader(data, REQUEST_TYPE_DELETE, self.getSequence(), uint32(0), uint32(len(subdata.Bytes())))
-      data.Write(subdata.Bytes())
-    case UPDATE:
-      self.writeUpdateRequest(subdata, r.req.dbname, r.req.table, r.req.index, r.req.fields, r.keys, r.op, r.start, r.limit, r.filters, r.values)
-      self.writeHeader(data, REQUEST_TYPE_UPDATE, self.getSequence(), uint32(0), uint32(len(subdata.Bytes())))
-      data.Write(subdata.Bytes())
-    case INSERT:
-      self.writeInsertRequest(subdata, r.req.dbname, r.req.table, r.req.index, r.req.fields, r.values)
-      self.writeHeader(data, REQUEST_TYPE_INSERT, self.getSequence(), uint32(0), uint32(len(subdata.Bytes())))
-      data.Write(subdata.Bytes())
-    default:
-      panic("Batch request type unknown. Be sure pointer is passed")
-    }
+func (self *Conn) clearBatchBuffer() bool {
+  if self.batchBuffer.Len() > 0 { // clear batch buffer
+    self.writeHeader(self.conn, REQUEST_TYPE_BATCH, self.batchSeqId, uint32(len(self.batchReqTypes)), uint32(self.batchBuffer.Len()))
+    self.conn.Write(self.batchBuffer.Bytes())
+    self.batchBuffer.Reset()
+    self.batchSeqId = self.getSequence()
+    return true
   }
-  self.writeHeader(self.conn, REQUEST_TYPE_BATCH, headerSequence, uint32(len(requests)), uint32(len(data.Bytes())))
-  self.conn.Write(data.Bytes())
+  return false
+}
 
-  ret = make([]Response, len(requests))
+func (self *Conn) Batch() (ret []Response, err error) {
+  send := self.clearBatchBuffer()
+  self.inBatchMode = true
+  self.writer = self.batchBuffer
+  if send {
+    ret, err = self.readBatchResult()
+  }
+  self.batchReqTypes = make([]int, 0)
+  return
+}
+
+func (self *Conn) Commit() (ret []Response, err error) {
+  send := self.clearBatchBuffer()
+  self.inBatchMode = false
+  self.writer = self.conn
+  if send {
+    ret, err = self.readBatchResult()
+  }
+  self.batchReqTypes = make([]int, 0)
+  return
+}
+
+func (self *Conn) readBatchResult() (ret []Response, err error) {
+  ret = make([]Response, len(self.batchReqTypes))
   code, _ := self.readHeader(self.conn)
   if code != CLIENT_STATUS_MULTI_STATUS {
     var errorCode uint32
@@ -243,8 +272,8 @@ func (self *Conn) Batch(requests ...Request) (ret []Response, err error) {
     err = &Error{code, errorCode}
     return ret, err
   }
-  for i := 0; i < len(requests); i++ {
-    switch reqTypes[i] {
+  for i, t := range self.batchReqTypes {
+    switch t {
     case DELETE:
       change, err := self.readDeleteResult()
       ret[i] = Response{t: DELETE, change: change, count: change, err: err}
@@ -345,24 +374,6 @@ type Filter struct {
   field string
   op uint8
   value string
-}
-
-type Req struct {
-  t int
-  dbname string
-  table string
-  index string
-  fields []string
-}
-
-type Request struct {
-  req Req
-  keys [][]string
-  op uint8
-  start uint32
-  limit uint32
-  filters []Filter
-  values []string
 }
 
 type Response struct {
