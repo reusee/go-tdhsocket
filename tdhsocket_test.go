@@ -133,9 +133,21 @@ func TestBatch(t *testing.T) {
 func TestErrorMessage(t *testing.T) {
   db, _ := getDb()
   err := db.Insert("Notest", "test", "", []string{"i"}, []string{"OK"})
+  e := err.(*Error)
+  if e.ClientStatus != 404 || e.ErrorCode != 1 {
+    t.Fail()
+  }
   fmt.Printf("Error: %s\n", err)
   err = db.Insert("test", "test", "", []string{"9"}, []string{"OK"})
+  e = err.(*Error)
+  if e.ClientStatus != 404 || e.ErrorCode != 3 {
+    t.Fail()
+  }
   fmt.Printf("Error: %s\n", err)
   err = db.Insert("test", "test", "", []string{"9"}, []string{"OK", "YES"})
+  e = err.(*Error)
+  if e.ClientStatus != 400 || e.ErrorCode != 7 {
+    t.Fail()
+  }
   fmt.Printf("Error: %s\n", err)
 }

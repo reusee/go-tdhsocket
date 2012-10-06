@@ -95,7 +95,8 @@ func (self *Conn) Insert(dbname string, table string, index string, fields []str
   self.writeHeader(self.conn, REQUEST_TYPE_INSERT, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 
-  return self.readInsertResult()
+  err = self.readInsertResult()
+  return
 }
 
 func (self *Conn) writeGetRequest(data io.Writer, dbname string, table string, index string, fields []string, keys [][]string,
@@ -184,7 +185,8 @@ func (self *Conn) Update(dbname string, table string, index string, fields []str
   self.writeHeader(self.conn, REQUEST_TYPE_UPDATE, self.getSequence(), uint32(0), uint32(len(data.Bytes())))
   self.conn.Write(data.Bytes())
 
-  return self.readUpdateResult()
+  count, change, err = self.readUpdateResult()
+  return
 }
 
 func (self *Conn) readDeleteResult() (change int, err error) {
