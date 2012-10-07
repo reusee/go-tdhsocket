@@ -129,7 +129,7 @@ func TestBatch(t *testing.T) {
     t.Fail()
   }
   for _, r := range res {
-    if r.err != nil {
+    if r.Err != nil {
       t.Fail()
     }
   }

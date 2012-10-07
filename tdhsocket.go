@@ -276,13 +276,13 @@ func (self *Conn) readBatchResult() (ret []Response, err error) {
     switch t {
     case DELETE:
       change, err := self.readDeleteResult()
-      ret[i] = Response{t: DELETE, change: change, count: change, err: err}
+      ret[i] = Response{T: DELETE, Change: change, Count: change, Err: err}
     case UPDATE:
       count, change, err := self.readUpdateResult()
-      ret[i] = Response{t: UPDATE, count: count, change: change, err: err}
+      ret[i] = Response{T: UPDATE, Count: count, Change: change, Err: err}
     case INSERT:
       err := self.readInsertResult()
-      ret[i] = Response{t: INSERT, err: err}
+      ret[i] = Response{T: INSERT, Err: err}
     }
   }
   return ret, nil
@@ -377,8 +377,8 @@ type Filter struct {
 }
 
 type Response struct {
-  t int
-  change int
-  count int
-  err error
+  T int
+  Change int
+  Count int
+  Err error
 }
