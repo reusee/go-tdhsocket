@@ -137,9 +137,9 @@ func (self *Conn) writeGetRequest(data io.Writer, dbname string, table string, i
   write(data, limit)
   write(data, uint32(len(filters)))
   for _, filter := range filters {
-    writeStr(data, filter.field)
-    write(data, filter.op)
-    writeStr(data, filter.value)
+    writeStr(data, filter.Field)
+    write(data, filter.Op)
+    writeStr(data, filter.Value)
   }
 }
 
@@ -371,9 +371,9 @@ func (self *Error) Error() string {
 }
 
 type Filter struct {
-  field string
-  op uint8
-  value string
+  Field string
+  Op uint8
+  Value string
 }
 
 type Response struct {
