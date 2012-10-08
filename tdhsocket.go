@@ -10,7 +10,7 @@ import (
 )
 
 var (
-  Timeout = 2000
+  Timeout = 1000 * 60 * 5
 )
 
 type Conn struct {
