@@ -109,7 +109,7 @@ var (
     5: "failed to lock table",
     6: "out of memory",
     7: "request decode error",
-    8: "field not found in filter",
+    8: "field not found in filter, or field type is blob",
     9: "failed to commit",
     10: "not implemented",
     11: "time out",
