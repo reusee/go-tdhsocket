@@ -7,7 +7,7 @@ import (
   "log"
 )
 
-// mysql> create table test (id serial, i bigint(255) default null, s longblob default null, f double default null, t boolean default null, index(i), index(f)) engine=innodb;
+// mysql> create table test (id serial, i bigint(255) default null, s longblob default null, f double default null, t boolean default null, hash char(32) null default null, index(hash), index(i), index(f)) engine=innodb;
 
 func getDb() (*Conn, error) {
   db, err := New("localhost:45678", "", "")

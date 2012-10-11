@@ -328,8 +328,11 @@ start:
         break start
       }
       fieldValue := make([]byte, fieldLength)
-      fieldValues[i] = fieldValue
       read(reader, fieldValue)
+      if fieldLength == 1 && fieldValue[0] == byte(0x00) {
+        fieldValue = []byte("")
+      }
+      fieldValues[i] = fieldValue
     }
     rows = append(rows, fieldValues)
   }
