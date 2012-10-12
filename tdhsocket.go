@@ -64,7 +64,7 @@ func (self *Conn) handShake(readCode string, writeCode string) {
   data := new(bytes.Buffer)
 
   data.Write([]byte("TDHS"))
-  write(data, uint32(1))
+  write(data, uint32(2)) // protocol version
   write(data, uint32(Timeout))
   writeStr(data, readCode)
   writeStr(data, writeCode)
